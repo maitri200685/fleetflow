@@ -1,4 +1,5 @@
 const pool = require("../config/database");
+const { isValidUuid } = require("../utils/validation");
 
 // ==========================================
 // GET ALL VEHICLES
@@ -140,6 +141,13 @@ const getVehicleById = async (req, res) => {
     try {
         const { id } = req.params;
 
+        if (!isValidUuid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid UUID format for vehicle ID"
+            });
+        }
+
         const result = await pool.query(
             `
             SELECT *
@@ -180,6 +188,13 @@ const getVehicleById = async (req, res) => {
 const updateVehicle = async (req, res) => {
     try {
         const { id } = req.params;
+
+        if (!isValidUuid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid UUID format for vehicle ID"
+            });
+        }
 
         const {
             vehicle_code,
@@ -290,6 +305,13 @@ const updateVehicle = async (req, res) => {
 const deleteVehicle = async (req, res) => {
     try {
         const { id } = req.params;
+
+        if (!isValidUuid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid UUID format for vehicle ID"
+            });
+        }
 
         // Check if vehicle exists
         const existingVehicle = await pool.query(

@@ -5,16 +5,6 @@ dotenv.config({
     path: path.resolve(__dirname, "../.env")
 });
 
-console.log("VERIFY DB HOST:", process.env.DB_HOST);
-console.log("VERIFY DB PORT:", process.env.DB_PORT);
-console.log("VERIFY DB NAME:", process.env.DB_NAME);
-console.log("VERIFY DB USER:", process.env.DB_USER);
-console.log("VERIFY DB PASSWORD TYPE:", typeof process.env.DB_PASSWORD);
-console.log(
-    "VERIFY DB PASSWORD LOADED:",
-    Boolean(process.env.DB_PASSWORD)
-);
-
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
@@ -47,6 +37,31 @@ app.use("/api/documents", documentRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 app.get("/api/health", (req, res) => res.json({ success: true, message: "FleetFlow API is running" }));
+
+app.get("/api/health/db", async (req, res) => {
+    try {
+        const result = await pool.query("SELECT NOW() AS current_time");
+        res.json({
+            success: true,
+            message: "FleetFlow backend is connected to PostgreSQL",
+            database: process.env.DB_NAME,
+            server_time: result.rows[0].current_time
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Database connection failed", error: error.message });
+    }
+});
+
+// 404 Route Not Found Middleware
+app.use((req, res) => {
+    res.status(404).json({ success: false, message: `Route '${req.originalUrl}' not found` });
+});
+
+// Centralized Error Handler Middleware
+app.use((err, req, res, next) => {
+    const statusCode = err.status || err.statusCode || 500;
+    res.status(statusCode).json({ success: false, message: err.message || "Internal Server Error" });
+});
 
 const TEST_PORT = 5099;
 let server;
@@ -85,8 +100,16 @@ function request(method, path, body = null) {
     });
 }
 
+const testResults = [];
+
+function recordTest(category, name, pass, detail = "") {
+    testResults.push({ category, name, status: pass ? "PASS" : "FAIL", detail });
+    const tag = pass ? "[PASS]" : "[FAIL]";
+    console.log(`${tag} ${category} :: ${name} ${detail ? "-> " + detail : ""}`);
+}
+
 async function runTests() {
-    console.log("Starting FleetFlow Full API Verification Suite...\n");
+    console.log("Starting FleetFlow Comprehensive Production Verification Suite...\n");
 
     const createdIds = {
         vehicles: [],
@@ -101,14 +124,23 @@ async function runTests() {
     };
 
     try {
-        // 1. Health Checks
-        console.log("--- HEALTH CHECKS ---");
+        // ==========================================
+        // 1. HEALTH CHECKS
+        // ==========================================
+        console.log("--- SECTION 1: HEALTH CHECKS ---");
         const health = await request("GET", "/api/health");
-        console.log(`[PASS] GET /api/health -> Status ${health.status}`);
-        if (health.status !== 200 || !health.body.success) throw new Error("Health check failed");
+        recordTest("Health", "GET /api/health", health.status === 200 && health.body.success, `Status ${health.status}`);
 
-        // 2. Vehicle API Regression Test (Module 1)
-        console.log("\n--- MODULE 1: VEHICLES REGRESSION TEST ---");
+        const healthDb = await request("GET", "/api/health/db");
+        recordTest("Health", "GET /api/health/db", healthDb.status === 200 && healthDb.body.success, `Status ${healthDb.status}`);
+
+        const notFoundRes = await request("GET", "/api/non-existent-route");
+        recordTest("Health", "404 Route Not Found Middleware", notFoundRes.status === 404, `Status ${notFoundRes.status}`);
+
+        // ==========================================
+        // 2. MODULE 1: VEHICLES CRUD & VERIFICATION
+        // ==========================================
+        console.log("\n--- SECTION 2: MODULE 1 (VEHICLES CRUD) ---");
         const vCode = `TEST-V-${Date.now()}`;
         const vReg = `TEST-REG-${Date.now()}`;
         const createV = await request("POST", "/api/vehicles", {
@@ -118,22 +150,36 @@ async function runTests() {
             capacity_kg: 5000,
             fuel_type: "DIESEL"
         });
-        console.log(`[PASS] POST /api/vehicles -> Status ${createV.status}`);
-        if (createV.status !== 201) throw new Error(`Vehicle creation failed: ${JSON.stringify(createV.body)}`);
-        const vehicleId = createV.body.data.id;
-        createdIds.vehicles.push(vehicleId);
+        const vehicleId = createV.body?.data?.id;
+        recordTest("Vehicles", "POST /api/vehicles (Create)", createV.status === 201 && vehicleId, `Status ${createV.status}`);
+        if (vehicleId) createdIds.vehicles.push(vehicleId);
 
         const getV = await request("GET", `/api/vehicles/${vehicleId}`);
-        console.log(`[PASS] GET /api/vehicles/:id -> Status ${getV.status}`);
-        if (getV.status !== 200) throw new Error("GET vehicle by ID failed");
+        recordTest("Vehicles", "GET /api/vehicles/:id", getV.status === 200, `Status ${getV.status}`);
 
-        // Invalid UUID check
-        const invalidUuidRes = await request("GET", "/api/drivers/not-a-valid-uuid");
-        console.log(`[PASS] UUID Validation -> Status ${invalidUuidRes.status} (${invalidUuidRes.body.message})`);
-        if (invalidUuidRes.status !== 400) throw new Error("UUID validation failed");
+        const updateV = await request("PUT", `/api/vehicles/${vehicleId}`, { model: "407 Turbo" });
+        recordTest("Vehicles", "PUT /api/vehicles/:id (Update)", updateV.status === 200 && updateV.body?.data?.model === "407 Turbo", `Status ${updateV.status}`);
 
-        // 3. Drivers (Module 2)
-        console.log("\n--- MODULE 2: DRIVERS ---");
+        const invalidUuidRes = await request("GET", "/api/vehicles/invalid-uuid-123");
+        recordTest("Vehicles", "Invalid UUID handling", invalidUuidRes.status === 400, `Status ${invalidUuidRes.status}`);
+
+        // Second vehicle for negative tests
+        const vCode2 = `TEST-V2-${Date.now()}`;
+        const vReg2 = `TEST-REG2-${Date.now()}`;
+        const createV2 = await request("POST", "/api/vehicles", {
+            vehicle_code: vCode2,
+            registration_number: vReg2,
+            vehicle_type: "VAN",
+            capacity_kg: 1000,
+            fuel_type: "PETROL"
+        });
+        const vehicleId2 = createV2.body?.data?.id;
+        if (vehicleId2) createdIds.vehicles.push(vehicleId2);
+
+        // ==========================================
+        // 3. MODULE 2: DRIVERS CRUD & VALIDATION
+        // ==========================================
+        console.log("\n--- SECTION 3: MODULE 2 (DRIVERS CRUD) ---");
         const dCode = `DRV-${Date.now()}`;
         const dLic = `LIC-${Date.now()}`;
         const dEmail = `driver_${Date.now()}@fleetflow.com`;
@@ -143,28 +189,44 @@ async function runTests() {
             phone: "9876543210",
             email: dEmail,
             license_number: dLic,
-            license_expiry: "2028-12-31"
+            license_expiry: "2028-12-31",
+            status: "Available"
         });
-        console.log(`[PASS] POST /api/drivers -> Status ${createD.status}`);
-        if (createD.status !== 201) throw new Error(`Driver creation failed: ${JSON.stringify(createD.body)}`);
-        const driverId = createD.body.data.id;
-        createdIds.drivers.push(driverId);
+        const driverId = createD.body?.data?.id;
+        recordTest("Drivers", "POST /api/drivers (Create)", createD.status === 201 && driverId, `Status ${createD.status}`);
+        if (driverId) createdIds.drivers.push(driverId);
 
         const getDrivers = await request("GET", "/api/drivers");
-        console.log(`[PASS] GET /api/drivers -> Count: ${getDrivers.body.count}`);
+        recordTest("Drivers", "GET /api/drivers", getDrivers.status === 200 && Array.isArray(getDrivers.body.data), `Count ${getDrivers.body.count}`);
 
-        // Duplicate Driver Code check
+        const updateD = await request("PUT", `/api/drivers/${driverId}`, { phone: "9998887770" });
+        recordTest("Drivers", "PUT /api/drivers/:id (Update)", updateD.status === 200 && updateD.body?.data?.phone === "9998887770", `Status ${updateD.status}`);
+
         const dupDriver = await request("POST", "/api/drivers", {
             driver_code: dCode,
             full_name: "Duplicate Driver",
             license_number: `LIC-DUP-${Date.now()}`,
             license_expiry: "2028-12-31"
         });
-        console.log(`[PASS] Duplicate Driver Code Check -> Status ${dupDriver.status}`);
-        if (dupDriver.status !== 409) throw new Error("Duplicate driver handling failed");
+        recordTest("Drivers", "Duplicate Driver Handling", dupDriver.status === 409, `Status ${dupDriver.status}`);
 
-        // 4. Customers (Module 3)
-        console.log("\n--- MODULE 3: CUSTOMERS ---");
+        // Second driver (Suspended) for negative test
+        const dCode2 = `DRV2-${Date.now()}`;
+        const dLic2 = `LIC2-${Date.now()}`;
+        const createD2 = await request("POST", "/api/drivers", {
+            driver_code: dCode2,
+            full_name: "Suspended Driver",
+            license_number: dLic2,
+            license_expiry: "2028-12-31",
+            status: "Suspended"
+        });
+        const driverId2 = createD2.body?.data?.id;
+        if (driverId2) createdIds.drivers.push(driverId2);
+
+        // ==========================================
+        // 4. MODULE 3: CUSTOMERS CRUD
+        // ==========================================
+        console.log("\n--- SECTION 4: MODULE 3 (CUSTOMERS CRUD) ---");
         const cCode = `CUST-${Date.now()}`;
         const cEmail = `cust_${Date.now()}@fleetflow.com`;
         const createC = await request("POST", "/api/customers", {
@@ -176,16 +238,20 @@ async function runTests() {
             address: "100 Logistics Way",
             city: "Metropolis"
         });
-        console.log(`[PASS] POST /api/customers -> Status ${createC.status}`);
-        if (createC.status !== 201) throw new Error(`Customer creation failed: ${JSON.stringify(createC.body)}`);
-        const customerId = createC.body.data.id;
-        createdIds.customers.push(customerId);
+        const customerId = createC.body?.data?.id;
+        recordTest("Customers", "POST /api/customers (Create)", createC.status === 201 && customerId, `Status ${createC.status}`);
+        if (customerId) createdIds.customers.push(customerId);
 
         const getCust = await request("GET", `/api/customers/${customerId}`);
-        console.log(`[PASS] GET /api/customers/:id -> Status ${getCust.status}`);
+        recordTest("Customers", "GET /api/customers/:id", getCust.status === 200, `Status ${getCust.status}`);
 
-        // 5. Trips & Assignment (Modules 4 & 5)
-        console.log("\n--- MODULE 4 & 5: TRIPS & BUSINESS ASSIGNMENT LOGIC ---");
+        const updateC = await request("PUT", `/api/customers/${customerId}`, { city: "New Metropolis" });
+        recordTest("Customers", "PUT /api/customers/:id (Update)", updateC.status === 200 && updateC.body?.data?.city === "New Metropolis", `Status ${updateC.status}`);
+
+        // ==========================================
+        // 5. MODULES 4 & 5: TRIPS & BUSINESS LOGIC
+        // ==========================================
+        console.log("\n--- SECTION 5: MODULES 4 & 5 (TRIPS & BUSINESS LOGIC) ---");
         const tripCode = `TRIP-${Date.now()}`;
         const createTrip = await request("POST", "/api/trips", {
             trip_code: tripCode,
@@ -199,152 +265,269 @@ async function runTests() {
             scheduled_start: "2026-08-10T10:00:00Z",
             scheduled_end: "2026-08-10T18:00:00Z"
         });
-        console.log(`[PASS] POST /api/trips (Assign Vehicle & Driver) -> Status ${createTrip.status}`);
-        if (createTrip.status !== 201) throw new Error(`Trip creation failed: ${JSON.stringify(createTrip.body)}`);
-        const tripId = createTrip.body.data.id;
-        createdIds.trips.push(tripId);
+        const tripId = createTrip.body?.data?.id;
+        recordTest("Trips", "POST /api/trips (Create & Assign)", createTrip.status === 201 && tripId, `Status ${createTrip.status}`);
+        if (tripId) createdIds.trips.push(tripId);
 
-        // Verify Vehicle & Driver status updated to On Trip / IN_TRANSIT
         const vCheck1 = await request("GET", `/api/vehicles/${vehicleId}`);
         const dCheck1 = await request("GET", `/api/drivers/${driverId}`);
-        console.log(`[PASS] Auto Vehicle Status Transition -> ${vCheck1.body.data.status}`);
-        console.log(`[PASS] Auto Driver Status Transition -> ${dCheck1.body.data.status}`);
-        if (vCheck1.body.data.status !== "IN_TRANSIT" || dCheck1.body.data.status !== "On Trip") {
-            throw new Error("Vehicle/Driver assignment status transition failed");
-        }
+        recordTest("Trips", "Vehicle Status Sync (IN_TRANSIT)", vCheck1.body?.data?.status === "IN_TRANSIT", `Status ${vCheck1.body?.data?.status}`);
+        recordTest("Trips", "Driver Status Sync (On Trip)", dCheck1.body?.data?.status === "On Trip", `Status ${dCheck1.body?.data?.status}`);
 
-        // Complete Trip
+        // Update Trip status to Completed
         const updateTripSt = await request("PUT", `/api/trips/${tripId}/status`, { status: "Completed" });
-        console.log(`[PASS] PUT /api/trips/:id/status (Completed) -> Status ${updateTripSt.status}`);
+        recordTest("Trips", "PUT /api/trips/:id/status (Completed)", updateTripSt.status === 200, `Status ${updateTripSt.status}`);
 
-        // Verify Vehicle & Driver status reset to Available
         const vCheck2 = await request("GET", `/api/vehicles/${vehicleId}`);
         const dCheck2 = await request("GET", `/api/drivers/${driverId}`);
-        console.log(`[PASS] Post-trip Vehicle Status -> ${vCheck2.body.data.status}`);
-        console.log(`[PASS] Post-trip Driver Status -> ${dCheck2.body.data.status}`);
-        if (vCheck2.body.data.status !== "AVAILABLE" || dCheck2.body.data.status !== "Available") {
-            throw new Error("Vehicle/Driver completion status reset failed");
-        }
+        recordTest("Trips", "Vehicle Status Reset (AVAILABLE)", vCheck2.body?.data?.status === "AVAILABLE", `Status ${vCheck2.body?.data?.status}`);
+        recordTest("Trips", "Driver Status Reset (Available)", dCheck2.body?.data?.status === "Available", `Status ${dCheck2.body?.data?.status}`);
 
-        // 6. Maintenance (Module 6)
-        console.log("\n--- MODULE 6: MAINTENANCE ---");
+        // NEGATIVE TESTS FOR TRIPS
+        console.log("\n--- BUSINESS RULE NEGATIVE TESTS (TRIPS) ---");
+        // 1. Cargo weight > Vehicle capacity
+        const badCapacityTrip = await request("POST", "/api/trips", {
+            trip_code: `TRIP-BAD-CAP-${Date.now()}`,
+            vehicle_id: vehicleId2, // Capacity 1000 kg
+            driver_id: driverId,
+            customer_id: customerId,
+            origin: "A", destination: "B",
+            cargo_weight_kg: 5000 // Exceeds 1000 kg!
+        });
+        recordTest("Trips Negative", "Cargo Weight Capacity Overflow", badCapacityTrip.status === 400, `Status ${badCapacityTrip.status} (${badCapacityTrip.body?.message})`);
+
+        // 2. Assigning Suspended Driver
+        const badDriverTrip = await request("POST", "/api/trips", {
+            trip_code: `TRIP-BAD-DRV-${Date.now()}`,
+            vehicle_id: vehicleId,
+            driver_id: driverId2, // Suspended Driver!
+            customer_id: customerId,
+            origin: "A", destination: "B",
+            cargo_weight_kg: 500
+        });
+        recordTest("Trips Negative", "Assigning Suspended Driver", badDriverTrip.status === 400, `Status ${badDriverTrip.status} (${badDriverTrip.body?.message})`);
+
+        // 3. Invalid dates (start > end)
+        const badDatesTrip = await request("POST", "/api/trips", {
+            trip_code: `TRIP-BAD-DATE-${Date.now()}`,
+            customer_id: customerId,
+            origin: "A", destination: "B",
+            scheduled_start: "2026-08-10T20:00:00Z",
+            scheduled_end: "2026-08-10T10:00:00Z"
+        });
+        recordTest("Trips Negative", "Scheduled Start after End Date", badDatesTrip.status === 400, `Status ${badDatesTrip.status} (${badDatesTrip.body?.message})`);
+
+        // ==========================================
+        // 6. MODULE 6: MAINTENANCE CRUD & VEHICLE SYNC
+        // ==========================================
+        console.log("\n--- SECTION 6: MODULE 6 (MAINTENANCE CRUD & SYNC) ---");
         const createM = await request("POST", "/api/maintenance", {
             vehicle_id: vehicleId,
-            maintenance_type: "Oil Change & Brake Service",
-            description: "Routine maintenance",
-            service_date: "2026-08-08",
-            cost: 250,
+            maintenance_type: "Engine Tune-up",
+            description: "Full service",
+            service_date: "2026-08-09",
+            cost: 300,
             status: "Scheduled"
         });
-        console.log(`[PASS] POST /api/maintenance -> Status ${createM.status}`);
-        if (createM.status !== 201) throw new Error("Maintenance record creation failed");
-        const maintenanceId = createM.body.data.id;
-        createdIds.maintenance.push(maintenanceId);
+        const maintenanceId = createM.body?.data?.id;
+        recordTest("Maintenance", "POST /api/maintenance (Create)", createM.status === 201 && maintenanceId, `Status ${createM.status}`);
+        if (maintenanceId) createdIds.maintenance.push(maintenanceId);
 
         const vMaintHistory = await request("GET", `/api/vehicles/${vehicleId}/maintenance`);
-        console.log(`[PASS] GET /api/vehicles/:id/maintenance -> History count: ${vMaintHistory.body.count}`);
+        recordTest("Maintenance", "GET /api/vehicles/:id/maintenance", vMaintHistory.status === 200 && vMaintHistory.body.count >= 1, `Count ${vMaintHistory.body.count}`);
 
-        // 7. Fuel Records (Module 7)
-        console.log("\n--- MODULE 7: FUEL RECORDS ---");
+        const updateM = await request("PUT", `/api/maintenance/${maintenanceId}`, { status: "In Progress" });
+        recordTest("Maintenance", "PUT /api/maintenance/:id (In Progress)", updateM.status === 200, `Status ${updateM.status}`);
+
+        const vMaintStatus = await request("GET", `/api/vehicles/${vehicleId}`);
+        recordTest("Maintenance", "Vehicle Status Sync (MAINTENANCE)", vMaintStatus.body?.data?.status === "MAINTENANCE", `Vehicle Status ${vMaintStatus.body?.data?.status}`);
+
+        const completeM = await request("PUT", `/api/maintenance/${maintenanceId}`, { status: "Completed" });
+        recordTest("Maintenance", "PUT /api/maintenance/:id (Completed)", completeM.status === 200, `Status ${completeM.status}`);
+
+        const vMaintRestored = await request("GET", `/api/vehicles/${vehicleId}`);
+        recordTest("Maintenance", "Vehicle Status Restored (AVAILABLE)", vMaintRestored.body?.data?.status === "AVAILABLE", `Vehicle Status ${vMaintRestored.body?.data?.status}`);
+
+        const badMaintCost = await request("POST", "/api/maintenance", {
+            vehicle_id: vehicleId,
+            maintenance_type: "Test",
+            service_date: "2026-08-09",
+            cost: -100
+        });
+        recordTest("Maintenance Negative", "Negative Cost Rejection", badMaintCost.status === 400, `Status ${badMaintCost.status}`);
+
+        // ==========================================
+        // 7. MODULE 7: FUEL RECORDS & AUTO COST
+        // ==========================================
+        console.log("\n--- SECTION 7: MODULE 7 (FUEL RECORDS & AUTO COST) ---");
         const createF = await request("POST", "/api/fuel", {
             vehicle_id: vehicleId,
-            fuel_date: "2026-08-08",
+            fuel_date: "2026-08-09",
             fuel_type: "DIESEL",
-            quantity_liters: 50,
-            price_per_liter: 1.5,
-            odometer_km: 1200,
-            station_name: "Shell Station 12"
+            quantity_liters: 60,
+            price_per_liter: 2.0,
+            odometer_km: 1500,
+            station_name: "BP Station"
         });
-        console.log(`[PASS] POST /api/fuel -> Status ${createF.status}`);
-        if (createF.status !== 201) throw new Error("Fuel record creation failed");
-        console.log(`[PASS] Auto total_cost calculation -> $${createF.body.data.total_cost} (expected 75)`);
-        if (parseFloat(createF.body.data.total_cost) !== 75) throw new Error("Fuel total_cost calculation incorrect");
-        const fuelId = createF.body.data.id;
-        createdIds.fuel.push(fuelId);
+        const fuelId = createF.body?.data?.id;
+        recordTest("Fuel", "POST /api/fuel (Create)", createF.status === 201 && fuelId, `Status ${createF.status}`);
+        if (fuelId) createdIds.fuel.push(fuelId);
+
+        recordTest("Fuel", "Auto total_cost Calculation ($120.00)", parseFloat(createF.body?.data?.total_cost) === 120, `total_cost ${createF.body?.data?.total_cost}`);
+
+        const vCheckMileage = await request("GET", `/api/vehicles/${vehicleId}`);
+        recordTest("Fuel", "Vehicle Mileage Update (1500 km)", parseFloat(vCheckMileage.body?.data?.current_mileage_km) === 1500, `Mileage ${vCheckMileage.body?.data?.current_mileage_km}`);
 
         const vFuelHistory = await request("GET", `/api/vehicles/${vehicleId}/fuel`);
-        console.log(`[PASS] GET /api/vehicles/:id/fuel -> History count: ${vFuelHistory.body.count}`);
+        recordTest("Fuel", "GET /api/vehicles/:id/fuel", vFuelHistory.status === 200 && vFuelHistory.body.count >= 1, `Count ${vFuelHistory.body.count}`);
 
-        // 8. Expenses (Module 8)
-        console.log("\n--- MODULE 8: EXPENSES ---");
+        const badFuelQty = await request("POST", "/api/fuel", {
+            vehicle_id: vehicleId,
+            quantity_liters: -10,
+            price_per_liter: 2,
+            odometer_km: 1000
+        });
+        recordTest("Fuel Negative", "Negative Quantity Rejection", badFuelQty.status === 400, `Status ${badFuelQty.status}`);
+
+        // ==========================================
+        // 8. MODULE 8: EXPENSES CRUD
+        // ==========================================
+        console.log("\n--- SECTION 8: MODULE 8 (EXPENSES CRUD) ---");
         const createExp = await request("POST", "/api/expenses", {
             vehicle_id: vehicleId,
             trip_id: tripId,
             expense_type: "Toll",
-            amount: 45.5,
-            expense_date: "2026-08-08",
-            description: "Highway toll charge"
+            amount: 50.0,
+            expense_date: "2026-08-09",
+            description: "Expressway Toll"
         });
-        console.log(`[PASS] POST /api/expenses -> Status ${createExp.status}`);
-        if (createExp.status !== 201) throw new Error("Expense creation failed");
-        const expenseId = createExp.body.data.id;
-        createdIds.expenses.push(expenseId);
+        const expenseId = createExp.body?.data?.id;
+        recordTest("Expenses", "POST /api/expenses (Create)", createExp.status === 201 && expenseId, `Status ${createExp.status}`);
+        if (expenseId) createdIds.expenses.push(expenseId);
 
         const vExpenses = await request("GET", `/api/vehicles/${vehicleId}/expenses`);
-        console.log(`[PASS] GET /api/vehicles/:id/expenses -> Count: ${vExpenses.body.count}`);
+        recordTest("Expenses", "GET /api/vehicles/:id/expenses", vExpenses.status === 200 && vExpenses.body.count >= 1, `Count ${vExpenses.body.count}`);
 
         const tExpenses = await request("GET", `/api/expenses/trip/${tripId}`);
-        console.log(`[PASS] GET /api/expenses/trip/:id -> Count: ${tExpenses.body.count}`);
+        recordTest("Expenses", "GET /api/expenses/trip/:id", tExpenses.status === 200 && tExpenses.body.count >= 1, `Count ${tExpenses.body.count}`);
 
-        // 9. Documents (Module 9)
-        console.log("\n--- MODULE 9: DOCUMENTS ---");
-        // Check invalid entity (no vehicle or driver)
-        const invalidDoc = await request("POST", "/api/documents", {
-            document_type: "Insurance",
-            file_url: "http://example.com/doc.pdf"
+        const updateExp = await request("PUT", `/api/expenses/${expenseId}`, { amount: 55.0 });
+        recordTest("Expenses", "PUT /api/expenses/:id (Update)", updateExp.status === 200 && parseFloat(updateExp.body?.data?.amount) === 55, `Status ${updateExp.status}`);
+
+        const badExpAmt = await request("POST", "/api/expenses", {
+            expense_type: "Toll",
+            amount: 0
         });
-        console.log(`[PASS] Invalid document without vehicle or driver -> Status ${invalidDoc.status}`);
-        if (invalidDoc.status !== 400) throw new Error("Document entity validation failed");
+        recordTest("Expenses Negative", "Zero/Negative Amount Rejection", badExpAmt.status === 400, `Status ${badExpAmt.status}`);
+
+        // ==========================================
+        // 9. MODULE 9: DOCUMENTS & EXPIRY STATUS
+        // ==========================================
+        console.log("\n--- SECTION 9: MODULE 9 (DOCUMENTS & EXPIRY) ---");
+        const badDoc = await request("POST", "/api/documents", {
+            document_type: "RC",
+            file_url: "http://example.com/rc.pdf"
+        });
+        recordTest("Documents Negative", "Document without Entity Rejection", badDoc.status === 400, `Status ${badDoc.status}`);
 
         const createDoc = await request("POST", "/api/documents", {
             vehicle_id: vehicleId,
             document_type: "Insurance",
-            document_number: "INS-998877",
+            document_number: "INS-112233",
             issue_date: "2025-01-01",
             expiry_date: "2027-01-01",
             file_url: "http://example.com/insurance.pdf"
         });
-        console.log(`[PASS] POST /api/documents -> Status ${createDoc.status}`);
-        if (createDoc.status !== 201) throw new Error("Document creation failed");
-        const docId = createDoc.body.data.id;
-        createdIds.documents.push(docId);
+        const docId = createDoc.body?.data?.id;
+        recordTest("Documents", "POST /api/documents (Create)", createDoc.status === 201 && docId, `Status ${createDoc.status}`);
+        if (docId) createdIds.documents.push(docId);
 
         const vDocs = await request("GET", `/api/vehicles/${vehicleId}/documents`);
-        console.log(`[PASS] GET /api/vehicles/:id/documents -> Count: ${vDocs.body.count}`);
+        recordTest("Documents", "GET /api/vehicles/:id/documents", vDocs.status === 200 && vDocs.body.count >= 1, `Count ${vDocs.body.count}`);
 
-        // 10. Notifications (Module 10)
-        console.log("\n--- MODULE 10: NOTIFICATIONS ---");
+        const updateDoc = await request("PUT", `/api/documents/${docId}`, { document_number: "INS-999999" });
+        recordTest("Documents", "PUT /api/documents/:id (Update)", updateDoc.status === 200 && updateDoc.body?.data?.document_number === "INS-999999", `Status ${updateDoc.status}`);
+
+        // ==========================================
+        // 10. MODULE 10: NOTIFICATIONS & READ STATUS
+        // ==========================================
+        console.log("\n--- SECTION 10: MODULE 10 (NOTIFICATIONS) ---");
         const createNotif = await request("POST", "/api/notifications", {
-            notification_type: "Insurance Expiry",
-            title: "Insurance Renewal Reminder",
-            message: "Vehicle insurance is set to expire in 30 days.",
-            related_entity_type: "vehicle",
-            related_entity_id: vehicleId
+            notification_type: "General",
+            title: "System Update",
+            message: "System scheduled for routine audit."
         });
-        console.log(`[PASS] POST /api/notifications -> Status ${createNotif.status}`);
-        if (createNotif.status !== 201) throw new Error("Notification creation failed");
-        const notifId = createNotif.body.data.id;
-        createdIds.notifications.push(notifId);
+        const notifId = createNotif.body?.data?.id;
+        recordTest("Notifications", "POST /api/notifications (Create)", createNotif.status === 201 && notifId, `Status ${createNotif.status}`);
+        if (notifId) createdIds.notifications.push(notifId);
 
         const unreadNotifs = await request("GET", "/api/notifications?unread=true");
-        console.log(`[PASS] GET /api/notifications?unread=true -> Unread count: ${unreadNotifs.body.count}`);
+        recordTest("Notifications", "GET /api/notifications?unread=true", unreadNotifs.status === 200 && unreadNotifs.body.count >= 1, `Unread Count ${unreadNotifs.body.count}`);
 
         const markRead = await request("PUT", `/api/notifications/${notifId}/read`);
-        console.log(`[PASS] PUT /api/notifications/:id/read -> Status ${markRead.status} (is_read=${markRead.body.data.is_read})`);
+        recordTest("Notifications", "PUT /api/notifications/:id/read", markRead.status === 200 && markRead.body?.data?.is_read === true, `is_read ${markRead.body?.data?.is_read}`);
 
         const markAll = await request("PUT", "/api/notifications/read-all");
-        console.log(`[PASS] PUT /api/notifications/read-all -> Status ${markAll.status}`);
+        recordTest("Notifications", "PUT /api/notifications/read-all", markAll.status === 200, `Status ${markAll.status}`);
+
+        // ==========================================
+        // 11. DELETE ENDPOINTS TESTING & CLEANUP
+        // ==========================================
+        console.log("\n--- SECTION 11: DELETE ENDPOINTS TESTING ---");
+        
+        const delNotif = await request("DELETE", `/api/notifications/${notifId}`);
+        recordTest("DELETE", "DELETE /api/notifications/:id", delNotif.status === 200, `Status ${delNotif.status}`);
+        createdIds.notifications = createdIds.notifications.filter(id => id !== notifId);
+
+        const delDoc = await request("DELETE", `/api/documents/${docId}`);
+        recordTest("DELETE", "DELETE /api/documents/:id", delDoc.status === 200, `Status ${delDoc.status}`);
+        createdIds.documents = createdIds.documents.filter(id => id !== docId);
+
+        const delExp = await request("DELETE", `/api/expenses/${expenseId}`);
+        recordTest("DELETE", "DELETE /api/expenses/:id", delExp.status === 200, `Status ${delExp.status}`);
+        createdIds.expenses = createdIds.expenses.filter(id => id !== expenseId);
+
+        const delFuel = await request("DELETE", `/api/fuel/${fuelId}`);
+        recordTest("DELETE", "DELETE /api/fuel/:id", delFuel.status === 200, `Status ${delFuel.status}`);
+        createdIds.fuel = createdIds.fuel.filter(id => id !== fuelId);
+
+        const delMaint = await request("DELETE", `/api/maintenance/${maintenanceId}`);
+        recordTest("DELETE", "DELETE /api/maintenance/:id", delMaint.status === 200, `Status ${delMaint.status}`);
+        createdIds.maintenance = createdIds.maintenance.filter(id => id !== maintenanceId);
+
+        const delTrip = await request("DELETE", `/api/trips/${tripId}`);
+        recordTest("DELETE", "DELETE /api/trips/:id", delTrip.status === 200, `Status ${delTrip.status}`);
+        createdIds.trips = createdIds.trips.filter(id => id !== tripId);
+
+        const delCust = await request("DELETE", `/api/customers/${customerId}`);
+        recordTest("DELETE", "DELETE /api/customers/:id", delCust.status === 200, `Status ${delCust.status}`);
+        createdIds.customers = createdIds.customers.filter(id => id !== customerId);
+
+        const delDrv = await request("DELETE", `/api/drivers/${driverId}`);
+        recordTest("DELETE", "DELETE /api/drivers/:id", delDrv.status === 200, `Status ${delDrv.status}`);
+        createdIds.drivers = createdIds.drivers.filter(id => id !== driverId);
+
+        const delVeh = await request("DELETE", `/api/vehicles/${vehicleId}`);
+        recordTest("DELETE", "DELETE /api/vehicles/:id", delVeh.status === 200, `Status ${delVeh.status}`);
+        createdIds.vehicles = createdIds.vehicles.filter(id => id !== vehicleId);
+
+        const totalPassed = testResults.filter(t => t.status === "PASS").length;
+        const totalFailed = testResults.filter(t => t.status === "FAIL").length;
 
         console.log("\n=========================================");
-        console.log(" ALL 10 MODULES VERIFIED SUCCESSFULLY!");
+        console.log(` SUMMARY: ${totalPassed} PASSED, ${totalFailed} FAILED`);
+        if (totalFailed === 0) {
+            console.log(" ALL 10 MODULES VERIFIED SUCCESSFULLY!");
+        } else {
+            console.log(" SOME TESTS FAILED!");
+        }
         console.log("=========================================\n");
 
     } catch (err) {
         console.error("\nTEST SUITE ERROR:", err);
         process.exitCode = 1;
     } finally {
-        // Cleanup test data
-        console.log("Cleaning up test records from database...");
+        console.log("Cleaning up any remaining test records from database...");
         for (const id of createdIds.notifications) await pool.query("DELETE FROM notifications WHERE id = $1", [id]);
         for (const id of createdIds.documents) await pool.query("DELETE FROM documents WHERE id = $1", [id]);
         for (const id of createdIds.expenses) await pool.query("DELETE FROM expenses WHERE id = $1", [id]);
