@@ -1,20 +1,133 @@
-# Dependencies
-node_modules/
 
-# Environment variables
+# =========================================================
+# FleetFlow - Git Ignore
+# =========================================================
+
+# ---------------------------------------------------------
+# Environment & Secrets
+# ---------------------------------------------------------
 .env
-.env.*
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
 
-# Build files
+# Keep example environment files
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+
+# ---------------------------------------------------------
+# Node.js Dependencies
+# ---------------------------------------------------------
+node_modules/
+**/node_modules/
+
+
+# ---------------------------------------------------------
+# Build / Production Output
+# ---------------------------------------------------------
 dist/
 build/
+coverage/
+.vite/
+.cache/
 
+
+# ---------------------------------------------------------
 # Logs
+# ---------------------------------------------------------
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# OS files
+
+# ---------------------------------------------------------
+# Runtime / Temporary Files
+# ---------------------------------------------------------
+tmp/
+temp/
+*.tmp
+*.temp
+
+
+# ---------------------------------------------------------
+# Operating System Files
+# ---------------------------------------------------------
 .DS_Store
+.DS_Store?
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# IDE
-.vscode/
+
+# ---------------------------------------------------------
+# IDE / Editor Files
+# ---------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+.idea/
+*.iml
+
+*.swp
+*.swo
+*~
+
+
+# ---------------------------------------------------------
+# Testing
+# ---------------------------------------------------------
+coverage/
+.nyc_output/
+
+
+# ---------------------------------------------------------
+# Local Database / Backup Files
+# ---------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+*.bak
+*.sql.bak
+
+
+# ---------------------------------------------------------
+# Certificates / Private Keys
+# ---------------------------------------------------------
+*.pem
+*.key
+*.crt
+*.cer
+
+
+# ---------------------------------------------------------
+# OS / Tool Specific
+# ---------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+
+
+# ---------------------------------------------------------
+# Generated Files
+# ---------------------------------------------------------
+*.generated.*
+*.cache
+
+
+# ---------------------------------------------------------
+# Scratch / Temporary Development Files
+# ---------------------------------------------------------
+scratch/
