@@ -8,12 +8,13 @@ const {
     updateMaintenance,
     deleteMaintenance
 } = require("../controllers/maintenanceController");
+const { authenticateToken, authorizeRoles } = require("../middleware/authMiddleware");
 
-router.get("/", getAllMaintenance);
-router.post("/", createMaintenance);
-router.get("/vehicle/:id", getVehicleMaintenanceHistory); // Convenient direct endpoint
-router.get("/:id", getMaintenanceById);
-router.put("/:id", updateMaintenance);
-router.delete("/:id", deleteMaintenance);
+router.get("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "MAINTENANCE_STAFF"), getAllMaintenance);
+router.post("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "MAINTENANCE_STAFF"), createMaintenance);
+router.get("/vehicle/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "MAINTENANCE_STAFF"), getVehicleMaintenanceHistory);
+router.get("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "MAINTENANCE_STAFF"), getMaintenanceById);
+router.put("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "MAINTENANCE_STAFF"), updateMaintenance);
+router.delete("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), deleteMaintenance);
 
 module.exports = router;

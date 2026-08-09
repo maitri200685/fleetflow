@@ -18,7 +18,23 @@ const notificationRoutes = require("./routes/notificationRoutes");
 
 const app = express();
 
-app.use(cors());
+// CORS Configuration supporting environment variable ALLOWED_ORIGINS
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
+    : ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"];
+
+const corsOptions = {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, server-to-server, curl) or explicitly allowed origins
+        if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
+            callback(null, true);
+        } else {
+            callback(null, false);
+        }
+    }
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // API Routes Registration
@@ -55,10 +71,11 @@ app.get("/api/health/db", async (req, res) => {
     } catch (error) {
         console.error("Database connection error:", error.message);
 
+        const isProd = process.env.NODE_ENV === "production";
         res.status(500).json({
             success: false,
             message: "Database connection failed",
-            error: error.message
+            ...(isProd ? {} : { error: error.message })
         });
     }
 });
@@ -75,9 +92,10 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
     console.error("Unhandled Server Error:", err.stack || err.message);
     const statusCode = err.status || err.statusCode || 500;
+    const isProd = process.env.NODE_ENV === "production";
     res.status(statusCode).json({
         success: false,
-        message: err.message || "Internal Server Error"
+        message: (statusCode >= 500 && isProd) ? "Internal Server Error" : (err.message || "Internal Server Error")
     });
 });
 

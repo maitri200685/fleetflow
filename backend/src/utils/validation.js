@@ -51,13 +51,15 @@ const sendList = (res, statusCode = 200, data = [], count = null) => {
 
 /**
  * Send standard error response
+ * Sanitizes 500 error messages and excludes error details in production environment
  */
 const sendError = (res, statusCode = 500, message = "Internal Server Error", error = null) => {
+    const isProd = process.env.NODE_ENV === 'production';
     const response = {
         success: false,
-        message
+        message: (statusCode >= 500 && isProd) ? "Internal Server Error" : message
     };
-    if (error && process.env.NODE_ENV !== 'production') {
+    if (error && !isProd) {
         response.error = typeof error === 'string' ? error : error.message;
     }
     return res.status(statusCode).json(response);

@@ -111,55 +111,49 @@ const getVehicleMaintenanceHistory = async (req, res) => {
 // CREATE MAINTENANCE RECORD
 // ==========================================
 const createMaintenance = async (req, res) => {
+    const {
+        vehicle_id,
+        maintenance_type,
+        description,
+        service_date,
+        odometer_km,
+        cost,
+        service_center,
+        next_service_date,
+        status
+    } = req.body;
+
+    // Validation
+    if (!vehicle_id || !maintenance_type || !service_date) {
+        return sendError(res, 400, "vehicle_id, maintenance_type, and service_date are required");
+    }
+
+    if (!isValidUuid(vehicle_id)) {
+        return sendError(res, 400, "Invalid vehicle_id UUID format");
+    }
+
+    if (cost !== undefined && parseFloat(cost) < 0) {
+        return sendError(res, 400, "Maintenance cost cannot be negative");
+    }
+
+    if (odometer_km !== undefined && parseFloat(odometer_km) < 0) {
+        return sendError(res, 400, "Odometer value cannot be negative");
+    }
+
+    const mainStatus = status || "Scheduled";
+
+    if (!VALID_STATUSES.includes(mainStatus)) {
+        return sendError(res, 400, `Invalid status. Allowed values: ${VALID_STATUSES.join(", ")}`);
+    }
+
     const client = await pool.connect();
     try {
-        const {
-            vehicle_id,
-            maintenance_type,
-            description,
-            service_date,
-            odometer_km,
-            cost,
-            service_center,
-            next_service_date,
-            status
-        } = req.body;
-
-        // Validation
-        if (!vehicle_id || !maintenance_type || !service_date) {
-            client.release();
-            return sendError(res, 400, "vehicle_id, maintenance_type, and service_date are required");
-        }
-
-        if (!isValidUuid(vehicle_id)) {
-            client.release();
-            return sendError(res, 400, "Invalid vehicle_id UUID format");
-        }
-
-        if (cost !== undefined && parseFloat(cost) < 0) {
-            client.release();
-            return sendError(res, 400, "Maintenance cost cannot be negative");
-        }
-
-        if (odometer_km !== undefined && parseFloat(odometer_km) < 0) {
-            client.release();
-            return sendError(res, 400, "Odometer value cannot be negative");
-        }
-
-        const mainStatus = status || "Scheduled";
-
-        if (!VALID_STATUSES.includes(mainStatus)) {
-            client.release();
-            return sendError(res, 400, `Invalid status. Allowed values: ${VALID_STATUSES.join(", ")}`);
-        }
-
         await client.query("BEGIN");
 
         // Verify vehicle exists
         const vRes = await client.query("SELECT id, status, current_mileage_km FROM vehicles WHERE id = $1", [vehicle_id]);
         if (vRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Vehicle not found");
         }
 
@@ -218,14 +212,13 @@ const createMaintenance = async (req, res) => {
         }
 
         await client.query("COMMIT");
-        client.release();
-
         return sendSuccess(res, 201, "Maintenance record created successfully", result.rows[0]);
     } catch (error) {
         await client.query("ROLLBACK");
-        client.release();
         console.error("Error creating maintenance record:", error.message);
         return sendError(res, 500, "Failed to create maintenance record", error);
+    } finally {
+        client.release();
     }
 };
 
@@ -233,47 +226,42 @@ const createMaintenance = async (req, res) => {
 // UPDATE MAINTENANCE RECORD
 // ==========================================
 const updateMaintenance = async (req, res) => {
+    const { id } = req.params;
+
+    if (!isValidUuid(id)) {
+        return sendError(res, 400, "Invalid UUID format for maintenance ID");
+    }
+
+    const {
+        maintenance_type,
+        description,
+        service_date,
+        odometer_km,
+        cost,
+        service_center,
+        next_service_date,
+        status
+    } = req.body;
+
+    if (cost !== undefined && parseFloat(cost) < 0) {
+        return sendError(res, 400, "Maintenance cost cannot be negative");
+    }
+
+    if (odometer_km !== undefined && parseFloat(odometer_km) < 0) {
+        return sendError(res, 400, "Odometer value cannot be negative");
+    }
+
+    if (status && !VALID_STATUSES.includes(status)) {
+        return sendError(res, 400, `Invalid status. Allowed values: ${VALID_STATUSES.join(", ")}`);
+    }
+
     const client = await pool.connect();
     try {
-        const { id } = req.params;
-
-        if (!isValidUuid(id)) {
-            client.release();
-            return sendError(res, 400, "Invalid UUID format for maintenance ID");
-        }
-
-        const {
-            maintenance_type,
-            description,
-            service_date,
-            odometer_km,
-            cost,
-            service_center,
-            next_service_date,
-            status
-        } = req.body;
-
-        if (cost !== undefined && parseFloat(cost) < 0) {
-            client.release();
-            return sendError(res, 400, "Maintenance cost cannot be negative");
-        }
-
-        if (odometer_km !== undefined && parseFloat(odometer_km) < 0) {
-            client.release();
-            return sendError(res, 400, "Odometer value cannot be negative");
-        }
-
-        if (status && !VALID_STATUSES.includes(status)) {
-            client.release();
-            return sendError(res, 400, `Invalid status. Allowed values: ${VALID_STATUSES.join(", ")}`);
-        }
-
         await client.query("BEGIN");
 
         const existing = await client.query("SELECT * FROM maintenance WHERE id = $1", [id]);
         if (existing.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Maintenance record not found");
         }
         const record = existing.rows[0];
@@ -317,14 +305,13 @@ const updateMaintenance = async (req, res) => {
         }
 
         await client.query("COMMIT");
-        client.release();
-
         return sendSuccess(res, 200, "Maintenance record updated successfully", result.rows[0]);
     } catch (error) {
         await client.query("ROLLBACK");
-        client.release();
         console.error("Error updating maintenance record:", error.message);
         return sendError(res, 500, "Failed to update maintenance record", error);
+    } finally {
+        client.release();
     }
 };
 

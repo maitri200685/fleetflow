@@ -9,13 +9,14 @@ const {
     updateTrip,
     deleteTrip
 } = require("../controllers/tripController");
+const { authenticateToken, authorizeRoles } = require("../middleware/authMiddleware");
 
-router.get("/", getAllTrips);
-router.post("/", createTrip);
-router.get("/:id", getTripById);
-router.put("/:id", updateTrip);
-router.put("/:id/assign", assignTrip);
-router.put("/:id/status", updateTripStatus);
-router.delete("/:id", deleteTrip);
+router.get("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER", "CUSTOMER"), getAllTrips);
+router.post("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), createTrip);
+router.get("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER", "CUSTOMER"), getTripById);
+router.put("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), updateTrip);
+router.put("/:id/assign", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), assignTrip);
+router.put("/:id/status", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), updateTripStatus);
+router.delete("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), deleteTrip);
 
 module.exports = router;

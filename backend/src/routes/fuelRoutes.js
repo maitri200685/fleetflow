@@ -8,12 +8,13 @@ const {
     updateFuelRecord,
     deleteFuelRecord
 } = require("../controllers/fuelController");
+const { authenticateToken, authorizeRoles } = require("../middleware/authMiddleware");
 
-router.get("/", getAllFuelRecords);
-router.post("/", createFuelRecord);
-router.get("/vehicle/:id", getVehicleFuelHistory); // Convenient direct endpoint
-router.get("/:id", getFuelRecordById);
-router.put("/:id", updateFuelRecord);
-router.delete("/:id", deleteFuelRecord);
+router.get("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getAllFuelRecords);
+router.post("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), createFuelRecord);
+router.get("/vehicle/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getVehicleFuelHistory);
+router.get("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getFuelRecordById);
+router.put("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), updateFuelRecord);
+router.delete("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), deleteFuelRecord);
 
 module.exports = router;

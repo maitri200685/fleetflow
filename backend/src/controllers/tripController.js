@@ -115,75 +115,65 @@ const getTripById = async (req, res) => {
 // CREATE NEW TRIP
 // ==========================================
 const createTrip = async (req, res) => {
+    const {
+        trip_code,
+        vehicle_id,
+        driver_id,
+        customer_id,
+        origin,
+        destination,
+        cargo_description,
+        cargo_weight_kg,
+        scheduled_start,
+        scheduled_end,
+        distance_km,
+        estimated_cost,
+        status
+    } = req.body;
+
+    // Validation before acquiring client
+    if (!trip_code || !customer_id || !origin || !destination) {
+        return sendError(
+            res,
+            400,
+            "trip_code, customer_id, origin, and destination are required"
+        );
+    }
+
+    if (!isValidUuid(customer_id)) {
+        return sendError(res, 400, "Invalid customer_id UUID format");
+    }
+
+    if (vehicle_id && !isValidUuid(vehicle_id)) {
+        return sendError(res, 400, "Invalid vehicle_id UUID format");
+    }
+
+    if (driver_id && !isValidUuid(driver_id)) {
+        return sendError(res, 400, "Invalid driver_id UUID format");
+    }
+
+    if (cargo_weight_kg !== undefined && cargo_weight_kg < 0) {
+        return sendError(res, 400, "cargo_weight_kg cannot be negative");
+    }
+
+    if (scheduled_start && scheduled_end) {
+        if (new Date(scheduled_start) > new Date(scheduled_end)) {
+            return sendError(res, 400, "scheduled_start cannot be after scheduled_end");
+        }
+    }
+
     const client = await pool.connect();
     try {
-        const {
-            trip_code,
-            vehicle_id,
-            driver_id,
-            customer_id,
-            origin,
-            destination,
-            cargo_description,
-            cargo_weight_kg,
-            scheduled_start,
-            scheduled_end,
-            distance_km,
-            estimated_cost,
-            status
-        } = req.body;
-
-        // Required validation
-        if (!trip_code || !customer_id || !origin || !destination) {
-            client.release();
-            return sendError(
-                res,
-                400,
-                "trip_code, customer_id, origin, and destination are required"
-            );
-        }
-
-        if (!isValidUuid(customer_id)) {
-            client.release();
-            return sendError(res, 400, "Invalid customer_id UUID format");
-        }
-
-        if (vehicle_id && !isValidUuid(vehicle_id)) {
-            client.release();
-            return sendError(res, 400, "Invalid vehicle_id UUID format");
-        }
-
-        if (driver_id && !isValidUuid(driver_id)) {
-            client.release();
-            return sendError(res, 400, "Invalid driver_id UUID format");
-        }
-
-        // Validate cargo weight if provided
-        if (cargo_weight_kg !== undefined && cargo_weight_kg < 0) {
-            client.release();
-            return sendError(res, 400, "cargo_weight_kg cannot be negative");
-        }
-
-        // Validate scheduled dates
-        if (scheduled_start && scheduled_end) {
-            if (new Date(scheduled_start) > new Date(scheduled_end)) {
-                client.release();
-                return sendError(res, 400, "scheduled_start cannot be after scheduled_end");
-            }
-        }
-
         await client.query("BEGIN");
 
         // 1. Verify Customer exists
         const custRes = await client.query("SELECT id, status FROM customers WHERE id = $1", [customer_id]);
         if (custRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Customer not found");
         }
         if (custRes.rows[0].status === "Inactive") {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 400, "Cannot assign trip to an Inactive customer");
         }
 
@@ -192,20 +182,17 @@ const createTrip = async (req, res) => {
             const vRes = await client.query("SELECT id, status, capacity_kg FROM vehicles WHERE id = $1", [vehicle_id]);
             if (vRes.rows.length === 0) {
                 await client.query("ROLLBACK");
-                client.release();
                 return sendError(res, 404, "Vehicle not found");
             }
             vehicleObj = vRes.rows[0];
 
             if (!isVehicleAvailable(vehicleObj.status)) {
                 await client.query("ROLLBACK");
-                client.release();
                 return sendError(res, 400, `Vehicle is not available (Current status: ${vehicleObj.status})`);
             }
 
             if (cargo_weight_kg && parseFloat(cargo_weight_kg) > parseFloat(vehicleObj.capacity_kg)) {
                 await client.query("ROLLBACK");
-                client.release();
                 return sendError(
                     res,
                     400,
@@ -219,14 +206,12 @@ const createTrip = async (req, res) => {
             const dRes = await client.query("SELECT id, status FROM drivers WHERE id = $1", [driver_id]);
             if (dRes.rows.length === 0) {
                 await client.query("ROLLBACK");
-                client.release();
                 return sendError(res, 404, "Driver not found");
             }
             driverObj = dRes.rows[0];
 
             if (!isDriverAvailable(driverObj.status)) {
                 await client.query("ROLLBACK");
-                client.release();
                 return sendError(res, 400, `Driver is not available (Current status: ${driverObj.status})`);
             }
         }
@@ -238,7 +223,6 @@ const createTrip = async (req, res) => {
 
         if (!VALID_TRIP_STATUSES.includes(initialStatus)) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 400, `Invalid trip status. Allowed values: ${VALID_TRIP_STATUSES.join(", ")}`);
         }
 
@@ -290,12 +274,9 @@ const createTrip = async (req, res) => {
         }
 
         await client.query("COMMIT");
-        client.release();
-
         return sendSuccess(res, 201, "Trip created successfully", insertRes.rows[0]);
     } catch (error) {
         await client.query("ROLLBACK");
-        client.release();
         console.error("Error creating trip:", error.message);
 
         if (error.code === "23505") {
@@ -303,6 +284,8 @@ const createTrip = async (req, res) => {
         }
 
         return sendError(res, 500, "Failed to create trip", error);
+    } finally {
+        client.release();
     }
 };
 
@@ -310,40 +293,35 @@ const createTrip = async (req, res) => {
 // ASSIGN TRIP (MODULE 5 BUSINESS LOGIC)
 // ==========================================
 const assignTrip = async (req, res) => {
+    const { id } = req.params;
+    const { vehicle_id, driver_id } = req.body;
+
+    if (!isValidUuid(id)) {
+        return sendError(res, 400, "Invalid trip ID UUID format");
+    }
+
+    if (!vehicle_id || !driver_id) {
+        return sendError(res, 400, "vehicle_id and driver_id are required for assignment");
+    }
+
+    if (!isValidUuid(vehicle_id) || !isValidUuid(driver_id)) {
+        return sendError(res, 400, "Invalid vehicle_id or driver_id UUID format");
+    }
+
     const client = await pool.connect();
     try {
-        const { id } = req.params;
-        const { vehicle_id, driver_id } = req.body;
-
-        if (!isValidUuid(id)) {
-            client.release();
-            return sendError(res, 400, "Invalid trip ID UUID format");
-        }
-
-        if (!vehicle_id || !driver_id) {
-            client.release();
-            return sendError(res, 400, "vehicle_id and driver_id are required for assignment");
-        }
-
-        if (!isValidUuid(vehicle_id) || !isValidUuid(driver_id)) {
-            client.release();
-            return sendError(res, 400, "Invalid vehicle_id or driver_id UUID format");
-        }
-
         await client.query("BEGIN");
 
         // 1. Fetch trip
         const tripRes = await client.query("SELECT * FROM trips WHERE id = $1", [id]);
         if (tripRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Trip not found");
         }
         const trip = tripRes.rows[0];
 
         if (trip.status === "Completed" || trip.status === "Cancelled") {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 400, `Cannot reassign a trip that is already ${trip.status}`);
         }
 
@@ -351,7 +329,6 @@ const assignTrip = async (req, res) => {
         const vRes = await client.query("SELECT id, status, capacity_kg FROM vehicles WHERE id = $1", [vehicle_id]);
         if (vRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Vehicle not found");
         }
         const vehicle = vRes.rows[0];
@@ -359,13 +336,11 @@ const assignTrip = async (req, res) => {
         // If vehicle is changed, verify vehicle is available
         if (trip.vehicle_id !== vehicle_id && !isVehicleAvailable(vehicle.status)) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 400, `Vehicle is not available (Current status: ${vehicle.status})`);
         }
 
         if (trip.cargo_weight_kg && parseFloat(trip.cargo_weight_kg) > parseFloat(vehicle.capacity_kg)) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(
                 res,
                 400,
@@ -377,20 +352,17 @@ const assignTrip = async (req, res) => {
         const dRes = await client.query("SELECT id, status FROM drivers WHERE id = $1", [driver_id]);
         if (dRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Driver not found");
         }
         const driver = dRes.rows[0];
 
         if (driver.status === "Suspended" || driver.status === "Inactive") {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 400, `Driver cannot be assigned because status is ${driver.status}`);
         }
 
         if (trip.driver_id !== driver_id && !isDriverAvailable(driver.status)) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 400, `Driver is not available (Current status: ${driver.status})`);
         }
 
@@ -422,14 +394,13 @@ const assignTrip = async (req, res) => {
         await client.query("UPDATE drivers SET status = 'On Trip', updated_at = CURRENT_TIMESTAMP WHERE id = $1", [driver_id]);
 
         await client.query("COMMIT");
-        client.release();
-
         return sendSuccess(res, 200, "Trip assigned successfully", updatedTripRes.rows[0]);
     } catch (error) {
         await client.query("ROLLBACK");
-        client.release();
         console.error("Error assigning trip:", error.message);
         return sendError(res, 500, "Failed to assign trip", error);
+    } finally {
+        client.release();
     }
 };
 
@@ -437,27 +408,24 @@ const assignTrip = async (req, res) => {
 // UPDATE TRIP STATUS
 // ==========================================
 const updateTripStatus = async (req, res) => {
+    const { id } = req.params;
+    const { status, actual_start, actual_end, actual_cost } = req.body;
+
+    if (!isValidUuid(id)) {
+        return sendError(res, 400, "Invalid trip ID UUID format");
+    }
+
+    if (!status || !VALID_TRIP_STATUSES.includes(status)) {
+        return sendError(res, 400, `Invalid status. Allowed values: ${VALID_TRIP_STATUSES.join(", ")}`);
+    }
+
     const client = await pool.connect();
     try {
-        const { id } = req.params;
-        const { status, actual_start, actual_end, actual_cost } = req.body;
-
-        if (!isValidUuid(id)) {
-            client.release();
-            return sendError(res, 400, "Invalid trip ID UUID format");
-        }
-
-        if (!status || !VALID_TRIP_STATUSES.includes(status)) {
-            client.release();
-            return sendError(res, 400, `Invalid status. Allowed values: ${VALID_TRIP_STATUSES.join(", ")}`);
-        }
-
         await client.query("BEGIN");
 
         const tripRes = await client.query("SELECT * FROM trips WHERE id = $1", [id]);
         if (tripRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Trip not found");
         }
         const trip = tripRes.rows[0];
@@ -505,14 +473,13 @@ const updateTripStatus = async (req, res) => {
         }
 
         await client.query("COMMIT");
-        client.release();
-
         return sendSuccess(res, 200, `Trip status updated to ${status}`, updateRes.rows[0]);
     } catch (error) {
         await client.query("ROLLBACK");
-        client.release();
         console.error("Error updating trip status:", error.message);
         return sendError(res, 500, "Failed to update trip status", error);
+    } finally {
+        client.release();
     }
 };
 
@@ -607,21 +574,19 @@ const updateTrip = async (req, res) => {
 // DELETE TRIP
 // ==========================================
 const deleteTrip = async (req, res) => {
+    const { id } = req.params;
+
+    if (!isValidUuid(id)) {
+        return sendError(res, 400, "Invalid UUID format for trip ID");
+    }
+
     const client = await pool.connect();
     try {
-        const { id } = req.params;
-
-        if (!isValidUuid(id)) {
-            client.release();
-            return sendError(res, 400, "Invalid UUID format for trip ID");
-        }
-
         await client.query("BEGIN");
 
         const tripRes = await client.query("SELECT * FROM trips WHERE id = $1", [id]);
         if (tripRes.rows.length === 0) {
             await client.query("ROLLBACK");
-            client.release();
             return sendError(res, 404, "Trip not found");
         }
         const trip = tripRes.rows[0];
@@ -640,14 +605,13 @@ const deleteTrip = async (req, res) => {
         }
 
         await client.query("COMMIT");
-        client.release();
-
         return sendSuccess(res, 200, "Trip deleted successfully", deleteRes.rows[0]);
     } catch (error) {
         await client.query("ROLLBACK");
-        client.release();
         console.error("Error deleting trip:", error.message);
         return sendError(res, 500, "Failed to delete trip", error);
+    } finally {
+        client.release();
     }
 };
 

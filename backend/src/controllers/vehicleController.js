@@ -1,5 +1,5 @@
 const pool = require("../config/database");
-const { isValidUuid } = require("../utils/validation");
+const { isValidUuid, sendError } = require("../utils/validation");
 
 // ==========================================
 // GET ALL VEHICLES
@@ -20,12 +20,7 @@ const getAllVehicles = async (req, res) => {
 
     } catch (error) {
         console.error("Error fetching vehicles:", error.message);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch vehicles",
-            error: error.message
-        });
+        return sendError(res, 500, "Failed to fetch vehicles", error);
     }
 };
 
@@ -125,11 +120,7 @@ const createVehicle = async (req, res) => {
             });
         }
 
-        res.status(500).json({
-            success: false,
-            message: "Failed to create vehicle",
-            error: error.message
-        });
+        return sendError(res, 500, "Failed to create vehicle", error);
     }
 };
 
@@ -172,12 +163,7 @@ const getVehicleById = async (req, res) => {
 
     } catch (error) {
         console.error("Error fetching vehicle:", error.message);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch vehicle",
-            error: error.message
-        });
+        return sendError(res, 500, "Failed to fetch vehicle", error);
     }
 };
 
@@ -290,11 +276,7 @@ const updateVehicle = async (req, res) => {
             });
         }
 
-        res.status(500).json({
-            success: false,
-            message: "Failed to update vehicle",
-            error: error.message
-        });
+        return sendError(res, 500, "Failed to update vehicle", error);
     }
 };
 
@@ -348,12 +330,7 @@ const deleteVehicle = async (req, res) => {
 
     } catch (error) {
         console.error("Error deleting vehicle:", error.message);
-
-        res.status(500).json({
-            success: false,
-            message: "Failed to delete vehicle",
-            error: error.message
-        });
+        return sendError(res, 500, "Failed to delete vehicle", error);
     }
 };
 

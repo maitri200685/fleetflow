@@ -63,10 +63,17 @@ app.use((err, req, res, next) => {
     res.status(statusCode).json({ success: false, message: err.message || "Internal Server Error" });
 });
 
+const jwt = require("jsonwebtoken");
+const TEST_ADMIN_TOKEN = jwt.sign(
+    { id: "test-admin-uuid", role: "ADMIN" },
+    process.env.JWT_SECRET || "fleetflow_jwt_secret_key_2026_super_secure",
+    { expiresIn: "1h" }
+);
+
 const TEST_PORT = 5099;
 let server;
 
-function request(method, path, body = null) {
+function request(method, path, body = null, token = TEST_ADMIN_TOKEN) {
     return new Promise((resolve, reject) => {
         const payload = body ? JSON.stringify(body) : null;
         const req = http.request(
@@ -77,6 +84,7 @@ function request(method, path, body = null) {
                 method,
                 headers: {
                     "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {}),
                     ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {})
                 }
             },
