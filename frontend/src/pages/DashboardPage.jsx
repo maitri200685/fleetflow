@@ -11,58 +11,75 @@ export const DashboardPage = () => {
         availableVehicles: 0,
         totalDrivers: 0,
         activeTrips: 0,
-        completedTrips: 0
+        completedTrips: 0,
+        utilizationRate: 0,
+        monthlyOperatingCost: 0,
+        avgFuelEfficiency: 0
     });
     const [recentTrips, setRecentTrips] = useState([]);
+    const [recentAlerts, setRecentAlerts] = useState([]);
 
     useEffect(() => {
         let isMounted = true;
 
         const fetchDashboardData = async () => {
             try {
-                // Fetch Vehicles
+                // Fetch Overview & Analytics
                 let vCount = 0;
                 let vAvailable = 0;
-                try {
-                    const vRes = await api.get("/vehicles");
-                    if (vRes.data && vRes.data.data) {
-                        vCount = vRes.data.count || vRes.data.data.length || 0;
-                        vAvailable = vRes.data.data.filter(
-                            (v) => (v.status || "").toUpperCase() === "AVAILABLE"
-                        ).length;
-                    }
-                } catch {
-                    // Fallback to 0 if endpoint returns empty or unauthorized
-                }
-
-                // Fetch Drivers
                 let dCount = 0;
-                try {
-                    const dRes = await api.get("/drivers");
-                    if (dRes.data && dRes.data.data) {
-                        dCount = dRes.data.count || dRes.data.data.length || 0;
-                    }
-                } catch {
-                    // Fallback to 0
-                }
-
-                // Fetch Trips
                 let tActive = 0;
                 let tCompleted = 0;
                 let tripsList = [];
+                let utilPct = 0;
+                let opCost = 0;
+                let avgEff = 0;
+
                 try {
-                    const tRes = await api.get("/trips");
-                    if (tRes.data && tRes.data.data) {
+                    const [vRes, dRes, tRes, uRes, fRes, fuRes] = await Promise.all([
+                        api.get("/vehicles"),
+                        api.get("/drivers"),
+                        api.get("/trips"),
+                        api.get("/analytics/utilization"),
+                        api.get("/analytics/financial"),
+                        api.get("/analytics/fuel")
+                    ]);
+
+                    if (vRes.data?.data) {
+                        vCount = vRes.data.count || vRes.data.data.length || 0;
+                        vAvailable = vRes.data.data.filter((v) => (v.status || "").toUpperCase() === "AVAILABLE").length;
+                    }
+                    if (dRes.data?.data) {
+                        dCount = dRes.data.count || dRes.data.data.length || 0;
+                    }
+                    if (tRes.data?.data) {
                         tripsList = tRes.data.data;
-                        tActive = tripsList.filter(
-                            (t) => t.status === "In Transit" || t.status === "Assigned"
-                        ).length;
-                        tCompleted = tripsList.filter(
-                            (t) => t.status === "Completed"
-                        ).length;
+                        tActive = tripsList.filter((t) => t.status === "In Transit" || t.status === "Assigned").length;
+                        tCompleted = tripsList.filter((t) => t.status === "Completed").length;
+                    }
+                    if (uRes.data?.data?.vehicle_utilization_indicators) {
+                        utilPct = uRes.data.data.vehicle_utilization_indicators.fleet_utilization_rate || 0;
+                    }
+                    if (fRes.data?.data) {
+                        opCost = fRes.data.data.total_expenses || 0;
+                    }
+                    if (fuRes.data?.data) {
+                        avgEff = fuRes.data.data.average_fuel_efficiency || 0;
+                    }
+
+                } catch (err) {
+                    console.error("Error fetching dashboard telemetry:", err);
+                }
+
+                // Fetch Recent Alerts
+                let alertsList = [];
+                try {
+                    const nRes = await api.get("/notifications?limit=4");
+                    if (nRes.data?.data) {
+                        alertsList = nRes.data.data;
                     }
                 } catch {
-                    // Fallback to 0
+                    // Fallback
                 }
 
                 if (isMounted) {
@@ -71,9 +88,13 @@ export const DashboardPage = () => {
                         availableVehicles: vAvailable,
                         totalDrivers: dCount,
                         activeTrips: tActive,
-                        completedTrips: tCompleted
+                        completedTrips: tCompleted,
+                        utilizationRate: utilPct,
+                        monthlyOperatingCost: opCost,
+                        avgFuelEfficiency: avgEff
                     });
                     setRecentTrips(tripsList.slice(0, 5));
+                    setRecentAlerts(alertsList.slice(0, 4));
                 }
             } finally {
                 if (isMounted) setLoading(false);
@@ -86,6 +107,15 @@ export const DashboardPage = () => {
             isMounted = false;
         };
     }, []);
+
+    // Severity Icon Helper
+    const getAlertIcon = (severity) => {
+        const s = (severity || "info").toLowerCase();
+        if (s === "critical") return "🔴";
+        if (s === "warning") return "🟠";
+        if (s === "success") return "🟢";
+        return "🔵";
+    };
 
     return (
         <div className="dashboard-container">
@@ -150,6 +180,94 @@ export const DashboardPage = () => {
                 </div>
             </div>
 
+            {/* Fleet Performance Summary Section (Module 11) */}
+            <div className="card glass-card p-6 mb-8" style={{ borderLeft: "4px solid #3b82f6" }}>
+                <div className="flex-between mb-4" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 className="card-title" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span>📈 Fleet Performance Overview</span>
+                    </h3>
+                    <Link to="/analytics" className="btn btn-sm btn-primary" style={{ padding: "0.4rem 0.85rem", fontSize: "0.85rem" }}>
+                        View Analytics →
+                    </Link>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1rem" }}>
+                    <div style={{ background: "#0f172a", padding: "1rem", borderRadius: "8px" }}>
+                        <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>Fleet Utilization</div>
+                        <div style={{ fontSize: "1.4rem", fontWeight: "700", color: "#10b981", marginTop: "0.2rem" }}>
+                            {loading ? "..." : `${stats.utilizationRate}%`}
+                        </div>
+                    </div>
+
+                    <div style={{ background: "#0f172a", padding: "1rem", borderRadius: "8px" }}>
+                        <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>Active Trips</div>
+                        <div style={{ fontSize: "1.4rem", fontWeight: "700", color: "#60a5fa", marginTop: "0.2rem" }}>
+                            {loading ? "..." : stats.activeTrips}
+                        </div>
+                    </div>
+
+                    <div style={{ background: "#0f172a", padding: "1rem", borderRadius: "8px" }}>
+                        <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>Operating Cost</div>
+                        <div style={{ fontSize: "1.4rem", fontWeight: "700", color: "#ffffff", marginTop: "0.2rem" }}>
+                            {loading ? "..." : `$${stats.monthlyOperatingCost.toLocaleString()}`}
+                        </div>
+                    </div>
+
+                    <div style={{ background: "#0f172a", padding: "1rem", borderRadius: "8px" }}>
+                        <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>Avg Fuel Efficiency</div>
+                        <div style={{ fontSize: "1.4rem", fontWeight: "700", color: "#f59e0b", marginTop: "0.2rem" }}>
+                            {loading ? "..." : `${stats.avgFuelEfficiency} km/L`}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Recent Fleet Operational Alerts Section */}
+            <div className="card glass-card p-6 mb-8">
+                <div className="flex-between mb-4" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 className="card-title" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <span>🔔 Recent Fleet Alerts</span>
+                    </h3>
+                    <Link to="/notifications" className="btn btn-sm btn-outline-primary" style={{ padding: "0.3rem 0.75rem", fontSize: "0.85rem" }}>
+                        View All Notifications →
+                    </Link>
+                </div>
+
+                {loading ? (
+                    <div className="p-4 text-center text-muted">Scanning fleet alerts...</div>
+                ) : recentAlerts.length === 0 ? (
+                    <div className="p-6 text-center" style={{ backgroundColor: "#0f172a", borderRadius: "8px", border: "1px dashed #2a3447" }}>
+                        <div style={{ fontSize: "2rem", marginBottom: "0.25rem" }}>✅</div>
+                        <p className="text-muted" style={{ fontSize: "0.9rem" }}>No critical fleet operational alerts detected.</p>
+                    </div>
+                ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.85rem" }}>
+                        {recentAlerts.map((a) => (
+                            <div
+                                key={a.id}
+                                style={{
+                                    backgroundColor: "#0f172a",
+                                    padding: "0.85rem 1rem",
+                                    borderRadius: "8px",
+                                    borderLeft: a.severity === "critical" ? "4px solid #ef4444" : a.severity === "warning" ? "4px solid #f59e0b" : "4px solid #3b82f6",
+                                    borderTop: "1px solid #1e293b",
+                                    borderRight: "1px solid #1e293b",
+                                    borderBottom: "1px solid #1e293b"
+                                }}
+                            >
+                                <div style={{ fontSize: "0.82rem", fontWeight: "700", color: "#ffffff", display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.25rem" }}>
+                                    <span>{getAlertIcon(a.severity)}</span>
+                                    <span>{a.title}</span>
+                                </div>
+                                <div style={{ fontSize: "0.82rem", color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                                    {a.message}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             {/* Recent Trips Section */}
             <div className="card glass-card p-6 mb-8">
                 <div className="flex-between mb-4" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -181,8 +299,8 @@ export const DashboardPage = () => {
                             <tbody>
                                 {recentTrips.map((t) => (
                                     <tr key={t.id} style={{ borderBottom: "1px solid #1e293b" }}>
-                                        <td style={{ padding: "0.75rem", fontWeight: "600" }}>{t.trip_code}</td>
-                                        <td style={{ padding: "0.75rem" }}>{t.origin}</td>
+                                        <td style={{ padding: "0.75rem", fontWeight: "600" }}>{t.trip_code || t.trip_number}</td>
+                                        <td style={{ padding: "0.75rem" }}>{t.origin || t.source}</td>
                                         <td style={{ padding: "0.75rem" }}>{t.destination}</td>
                                         <td style={{ padding: "0.75rem" }}>
                                             <span className="role-pill">{t.status}</span>
@@ -199,6 +317,12 @@ export const DashboardPage = () => {
             <div className="card glass-card p-6">
                 <h3 className="card-title mb-4">FleetFlow System Operations</h3>
                 <div className="grid grid-cols-3 gap-4">
+                    <Link to="/analytics" className="module-card">
+                        <div className="module-icon">📈</div>
+                        <div className="module-title">Fleet Analytics</div>
+                        <div className="module-desc">Executive insights, costs, fuel efficiency, and reports</div>
+                    </Link>
+
                     <Link to="/vehicles" className="module-card">
                         <div className="module-icon">🚛</div>
                         <div className="module-title">Vehicles Management</div>
@@ -215,12 +339,6 @@ export const DashboardPage = () => {
                         <div className="module-icon">🗺️</div>
                         <div className="module-title">Trips & Dispatch</div>
                         <div className="module-desc">Route planning, cargo weight, and status updates</div>
-                    </Link>
-
-                    <Link to="/reports" className="module-card">
-                        <div className="module-icon">📈</div>
-                        <div className="module-title">Fleet Reports</div>
-                        <div className="module-desc">Analytics, mileage reports, and fuel efficiency</div>
                     </Link>
 
                     <Link to="/maintenance" className="module-card">

@@ -4,10 +4,19 @@ import LoginPage from "../pages/LoginPage";
 import RegisterPage from "../pages/RegisterPage";
 import DashboardPage from "../pages/DashboardPage";
 import VehiclesPage from "../pages/VehiclesPage";
+import DriversPage from "../pages/DriversPage";
+import CustomersPage from "../pages/CustomersPage";
+import TripsPage from "../pages/TripsPage";
+import MaintenancePage from "../pages/MaintenancePage";
+import FuelPage from "../pages/FuelPage";
+import ExpensesPage from "../pages/ExpensesPage";
+import DocumentsPage from "../pages/DocumentsPage";
+import NotificationsPage from "../pages/NotificationsPage";
+import AnalyticsPage from "../pages/AnalyticsPage";
 import Layout from "../components/Layout";
 import ProtectedRoute from "./ProtectedRoute";
 
-// Placeholder component for other module pages before subsequent phases
+// Placeholder component for remaining module pages
 const ModulePlaceholder = ({ title, icon }) => (
     <div className="card glass-card p-8 text-center">
         <div className="text-4xl mb-3">{icon}</div>
@@ -29,15 +38,16 @@ export const AppRoutes = () => {
                 <Route element={<Layout />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/vehicles" element={<VehiclesPage />} />
-                    <Route path="/drivers" element={<ModulePlaceholder title="Drivers Roster" icon="👨‍✈️" />} />
-                    <Route path="/customers" element={<ModulePlaceholder title="Customers Directory" icon="🏢" />} />
-                    <Route path="/trips" element={<ModulePlaceholder title="Trips & Dispatch" icon="🗺️" />} />
-                    <Route path="/maintenance" element={<ModulePlaceholder title="Maintenance Logs" icon="🛠️" />} />
-                    <Route path="/fuel" element={<ModulePlaceholder title="Fuel Records" icon="⛽" />} />
-                    <Route path="/expenses" element={<ModulePlaceholder title="Expenses Tracker" icon="💳" />} />
-                    <Route path="/documents" element={<ModulePlaceholder title="Document Repository" icon="📄" />} />
-                    <Route path="/notifications" element={<ModulePlaceholder title="System Notifications" icon="🔔" />} />
-                    <Route path="/reports" element={<ModulePlaceholder title="Fleet Reports" icon="📈" />} />
+                    <Route path="/drivers" element={<DriversPage />} />
+                    <Route path="/customers" element={<CustomersPage />} />
+                    <Route path="/trips" element={<TripsPage />} />
+                    <Route path="/maintenance" element={<MaintenancePage />} />
+                    <Route path="/fuel" element={<FuelPage />} />
+                    <Route path="/expenses" element={<ExpensesPage />} />
+                    <Route path="/documents" element={<DocumentsPage />} />
+                    <Route path="/notifications" element={<NotificationsPage />} />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
+                    <Route path="/reports" element={<Navigate to="/analytics" replace />} />
                     <Route path="/settings" element={<ModulePlaceholder title="System Settings" icon="⚙️" />} />
                 </Route>
             </Route>

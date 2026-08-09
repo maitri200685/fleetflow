@@ -1,11 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import api from "../services/api";
 
 export const Layout = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    // Fetch unread notifications count for sidebar badge
+    const fetchUnreadCount = async () => {
+        try {
+            const res = await api.get("/notifications/unread");
+            if (res.data && res.data.success) {
+                setUnreadCount(res.data.unread_count || res.data.count || 0);
+            }
+        } catch (err) {
+            // Quiet fallback for badge fetch
+        }
+    };
+
+    useEffect(() => {
+        fetchUnreadCount();
+        const interval = setInterval(fetchUnreadCount, 30000); // 30s poll
+        return () => clearInterval(interval);
+    }, []);
 
     const handleLogout = () => {
         logout();
@@ -42,6 +62,10 @@ export const Layout = () => {
                         <span className="nav-icon">📊</span>
                         <span>Dashboard</span>
                     </NavLink>
+                    <NavLink to="/analytics" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
+                        <span className="nav-icon">📈</span>
+                        <span>Analytics</span>
+                    </NavLink>
                     <NavLink to="/vehicles" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
                         <span className="nav-icon">🚛</span>
                         <span>Vehicles</span>
@@ -53,10 +77,6 @@ export const Layout = () => {
                     <NavLink to="/trips" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
                         <span className="nav-icon">🗺️</span>
                         <span>Trips</span>
-                    </NavLink>
-                    <NavLink to="/reports" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
-                        <span className="nav-icon">📈</span>
-                        <span>Reports</span>
                     </NavLink>
                     <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
                         <span className="nav-icon">⚙️</span>
@@ -87,6 +107,11 @@ export const Layout = () => {
                     <NavLink to="/notifications" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} onClick={() => setSidebarOpen(false)}>
                         <span className="nav-icon">🔔</span>
                         <span>Notifications</span>
+                        {unreadCount > 0 && (
+                            <span className="role-pill" style={{ marginLeft: "auto", backgroundColor: "#ef4444", color: "#ffffff", padding: "0.15rem 0.5rem", borderRadius: "12px", fontSize: "0.75rem", fontWeight: "700" }}>
+                                {unreadCount}
+                            </span>
+                        )}
                     </NavLink>
                 </nav>
 

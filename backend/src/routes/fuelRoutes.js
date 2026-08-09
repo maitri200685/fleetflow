@@ -4,6 +4,7 @@ const {
     getAllFuelRecords,
     getFuelRecordById,
     getVehicleFuelHistory,
+    getVehicleFuelSummary,
     createFuelRecord,
     updateFuelRecord,
     deleteFuelRecord
@@ -12,6 +13,7 @@ const { authenticateToken, authorizeRoles } = require("../middleware/authMiddlew
 
 router.get("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getAllFuelRecords);
 router.post("/", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), createFuelRecord);
+router.get("/vehicle/:id/summary", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getVehicleFuelSummary);
 router.get("/vehicle/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getVehicleFuelHistory);
 router.get("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER", "DRIVER"), getFuelRecordById);
 router.put("/:id", authenticateToken, authorizeRoles("ADMIN", "FLEET_MANAGER"), updateFuelRecord);

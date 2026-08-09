@@ -15,6 +15,7 @@ const fuelRoutes = require("./routes/fuelRoutes");
 const expenseRoutes = require("./routes/expenseRoutes");
 const documentRoutes = require("./routes/documentRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use("/api/fuel", fuelRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 // Basic API health check
 app.get("/api/health", (req, res) => {
